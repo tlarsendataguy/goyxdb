@@ -20,8 +20,14 @@ func TestLoadYxdb(t *testing.T) {
 	}
 
 	recordCount := 0
+	expectedId := 100
 	for yxdb.Next() {
+		actualId := getUserIdFromRecordBlob(yxdb.Record())
+		if actualId != expectedId {
+			t.Fatalf(`expected id %v but got %v`, expectedId, actualId)
+		}
 		recordCount++
+		expectedId++
 	}
 
 	err = yxdb.Close()
@@ -46,3 +52,7 @@ const expectedMetaInfo = `<RecordInfo>
 	<Field name="Country" size="2" source="CrossTab:Header:JSON_Name:nat:Concat:" type="String"/>
 </RecordInfo>
 `
+
+func getUserIdFromRecordBlob(record goyxdb.RecordBlob) int {
+	return int(*((*uint32)(record.Blob())))
+}

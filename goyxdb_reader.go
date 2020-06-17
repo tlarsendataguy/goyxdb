@@ -82,10 +82,30 @@ func (yxdb *yxdbReader) Next() bool {
 		return false
 	}
 
+	if yxdb.currentRecord == 1 {
+		ok, err := yxdb.loadNextBuffer()
+		yxdb.err = err
+		if err != nil || !ok {
+			return false
+		}
+		yxdb.updateCurrentVarLen()
+		return true
+	}
+
 	yxdb.currentPos += yxdb.fixedSize + 4 + yxdb.currentVarLen
 
-	if yxdb.currentPos > yxdb.outBufferSize {
-		yxdb.currentPos -= yxdb.fixedSize + 4 + yxdb.currentVarLen
+	if yxdb.currentPos+yxdb.fixedSize+4 > yxdb.outBufferSize {
+		ok, err := yxdb.loadNextBuffer()
+		yxdb.err = err
+		if err != nil || !ok {
+			return false
+		}
+		yxdb.updateCurrentVarLen()
+		return true
+	}
+
+	yxdb.updateCurrentVarLen()
+	if yxdb.currentPos+yxdb.fixedSize+4+yxdb.currentVarLen > yxdb.outBufferSize {
 		ok, err := yxdb.loadNextBuffer()
 		yxdb.err = err
 		if err != nil || !ok {
@@ -93,10 +113,12 @@ func (yxdb *yxdbReader) Next() bool {
 		}
 	}
 
+	return true
+}
+
+func (yxdb *yxdbReader) updateCurrentVarLen() {
 	varLenIntPos := yxdb.currentPos + yxdb.fixedSize
 	yxdb.currentVarLen = binary.LittleEndian.Uint32(yxdb.outBuffer[varLenIntPos : varLenIntPos+4])
-
-	return true
 }
 
 func (yxdb *yxdbReader) Error() error {
