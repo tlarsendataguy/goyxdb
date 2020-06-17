@@ -14,7 +14,7 @@ type YxdbReader interface {
 	RecordInfoXml() string
 	Next() bool
 	Error() error
-	Record() unsafe.Pointer
+	Record() RecordBlob
 	io.Closer
 }
 
@@ -103,8 +103,8 @@ func (yxdb *yxdbReader) Error() error {
 	return yxdb.err
 }
 
-func (yxdb *yxdbReader) Record() unsafe.Pointer {
-	return unsafe.Pointer(&yxdb.outBuffer[yxdb.currentPos])
+func (yxdb *yxdbReader) Record() RecordBlob {
+	return NewRecordBlob(unsafe.Pointer(&yxdb.outBuffer[yxdb.currentPos]))
 }
 
 func (yxdb *yxdbReader) Close() error {
@@ -194,11 +194,8 @@ func (yxdb *yxdbReader) loadNextBuffer() (bool, error) {
 
 	length := binary.LittleEndian.Uint32(buffer)
 
-	println(fmt.Sprintf(`length: %v`, length))
-
 	if length&0x80000000 > 0 { // data in block is not compressed and can be copied directly to the out buffer
 		length &= 0x7fffffff
-		println(`not compressed`)
 
 		read, err = yxdb.file.Read(yxdb.outBuffer[delta : delta+length])
 		if err != nil {
@@ -214,7 +211,6 @@ func (yxdb *yxdbReader) loadNextBuffer() (bool, error) {
 
 		outBufferSize, err := decompress(yxdb.inBuffer, length, yxdb.outBuffer[delta:], bufferSize*2-delta)
 		if err != nil {
-			println(err.Error())
 			return false, err
 		}
 		yxdb.outBufferSize = outBufferSize + delta
@@ -224,7 +220,6 @@ func (yxdb *yxdbReader) loadNextBuffer() (bool, error) {
 		return false, nil
 	}
 
-	println(fmt.Sprintf(`%v`, yxdb.outBuffer[0:200]))
 	yxdb.currentPos = 0
 	return true, nil
 }
