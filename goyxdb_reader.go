@@ -29,6 +29,7 @@ type yxdbReader struct {
 	outBufferSize    uint32
 	currentPos       uint32
 	currentVarLen    uint32
+	varLenSize       uint32
 	currentRecord    int
 	longRecordBuffer []byte
 	isLongRecord     bool
@@ -91,12 +92,12 @@ func (yxdb *yxdbReader) Next() bool {
 	if yxdb.isLongRecord || yxdb.currentRecord == 1 {
 		yxdb.isLongRecord = false
 	} else {
-		yxdb.currentPos += yxdb.fixedSize + 4 + yxdb.currentVarLen
+		yxdb.currentPos += yxdb.fixedSize + yxdb.varLenSize + yxdb.currentVarLen
 	}
 
 	// load the next round of bytes from the file if we don't have enough bytes to grab the variable width len of
 	// the current record
-	if yxdb.currentPos+yxdb.fixedSize+4 > yxdb.outBufferSize {
+	if yxdb.currentPos+yxdb.fixedSize+yxdb.varLenSize > yxdb.outBufferSize {
 		ok, err := yxdb.loadNextBuffer()
 		yxdb.err = err
 		if err != nil || !ok {
@@ -105,7 +106,7 @@ func (yxdb *yxdbReader) Next() bool {
 	}
 
 	yxdb.updateCurrentVarLen()
-	recordSize := yxdb.fixedSize + 4 + yxdb.currentVarLen
+	recordSize := yxdb.fixedSize + yxdb.varLenSize + yxdb.currentVarLen
 
 	if recordSize > bufferSize {
 		return yxdb.processLongRecord(recordSize)
@@ -151,6 +152,9 @@ func (yxdb *yxdbReader) processLongRecord(recordSize uint32) bool {
 }
 
 func (yxdb *yxdbReader) updateCurrentVarLen() {
+	if yxdb.varLenSize == 0 {
+		return
+	}
 	varLenIntPos := yxdb.currentPos + yxdb.fixedSize
 	yxdb.currentVarLen = binary.LittleEndian.Uint32(yxdb.outBuffer[varLenIntPos : varLenIntPos+4])
 }
@@ -207,6 +211,7 @@ func LoadYxdbReader(path string) (YxdbReader, error) {
 	if err != nil {
 		return nil, err
 	}
+	varFields := 0
 	for _, field := range metaInfoXml.Field {
 		switch field.Type {
 		case `Bool`:
@@ -224,6 +229,7 @@ func LoadYxdbReader(path string) (YxdbReader, error) {
 		case `WString`:
 			yxdb.fixedSize += field.Size*2 + 1
 		case `V_String`, `V_WString`, `SpatialObj`, `Blob`:
+			varFields++
 			yxdb.fixedSize += 4
 		case `Date`:
 			yxdb.fixedSize += 11
@@ -234,7 +240,11 @@ func LoadYxdbReader(path string) (YxdbReader, error) {
 
 	yxdb.inBuffer = make([]byte, bufferSize)
 	yxdb.outBuffer = make([]byte, bufferSize*2)
-
+	if varFields == 0 {
+		yxdb.varLenSize = 0
+	} else {
+		yxdb.varLenSize = 4
+	}
 	return yxdb, nil
 }
 
