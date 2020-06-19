@@ -19,17 +19,19 @@ type YxdbReader interface {
 }
 
 type yxdbReader struct {
-	recordInfoXml string
-	header        []byte
-	file          *os.File
-	err           error
-	fixedSize     uint32
-	inBuffer      []byte
-	outBuffer     []byte
-	outBufferSize uint32
-	currentPos    uint32
-	currentVarLen uint32
-	currentRecord int
+	recordInfoXml    string
+	header           []byte
+	file             *os.File
+	err              error
+	fixedSize        uint32
+	inBuffer         []byte
+	outBuffer        []byte
+	outBufferSize    uint32
+	currentPos       uint32
+	currentVarLen    uint32
+	currentRecord    int
+	longRecordBuffer []byte
+	isLongRecord     bool
 }
 
 const bufferSize uint32 = 0x40000
@@ -82,30 +84,34 @@ func (yxdb *yxdbReader) Next() bool {
 		return false
 	}
 
-	if yxdb.currentRecord == 1 {
-		ok, err := yxdb.loadNextBuffer()
-		yxdb.err = err
-		if err != nil || !ok {
-			return false
-		}
-		yxdb.updateCurrentVarLen()
-		return true
+	// If the prior record is a long record, we simply reset isLongRecord and don't move the current position
+	// because the prior record was pointing to longRecordBuffer and not outBuffer.  If the prior record is a short
+	// record then we need to move currentPos to the next record's starting point.  We also skip moving currentPos
+	// if we are on the first record because currentPos is already set properly to 0.
+	if yxdb.isLongRecord || yxdb.currentRecord == 1 {
+		yxdb.isLongRecord = false
+	} else {
+		yxdb.currentPos += yxdb.fixedSize + 4 + yxdb.currentVarLen
 	}
 
-	yxdb.currentPos += yxdb.fixedSize + 4 + yxdb.currentVarLen
-
+	// load the next round of bytes from the file if we don't have enough bytes to grab the variable width len of
+	// the current record
 	if yxdb.currentPos+yxdb.fixedSize+4 > yxdb.outBufferSize {
 		ok, err := yxdb.loadNextBuffer()
 		yxdb.err = err
 		if err != nil || !ok {
 			return false
 		}
-		yxdb.updateCurrentVarLen()
-		return true
 	}
 
 	yxdb.updateCurrentVarLen()
-	if yxdb.currentPos+yxdb.fixedSize+4+yxdb.currentVarLen > yxdb.outBufferSize {
+	recordSize := yxdb.fixedSize + 4 + yxdb.currentVarLen
+
+	if recordSize > bufferSize {
+		return yxdb.processLongRecord(recordSize)
+	}
+
+	if yxdb.currentPos+recordSize > yxdb.outBufferSize {
 		ok, err := yxdb.loadNextBuffer()
 		yxdb.err = err
 		if err != nil || !ok {
@@ -113,6 +119,34 @@ func (yxdb *yxdbReader) Next() bool {
 		}
 	}
 
+	return true
+}
+
+func (yxdb *yxdbReader) processLongRecord(recordSize uint32) bool {
+	yxdb.isLongRecord = true
+	if int(recordSize) > len(yxdb.longRecordBuffer) {
+		yxdb.longRecordBuffer = make([]byte, recordSize)
+	}
+
+	bytesCopied := uint32(copy(yxdb.longRecordBuffer, yxdb.outBuffer[yxdb.currentPos:yxdb.outBufferSize]))
+	longRecordBufferPos := bytesCopied
+	yxdb.currentPos += bytesCopied
+	for longRecordBufferPos < recordSize {
+		ok, err := yxdb.loadNextBuffer()
+		if err != nil || !ok {
+			return false
+		}
+
+		longRecordBytesLeft := recordSize - longRecordBufferPos
+		longRecordBytesToRead := longRecordBytesLeft
+		if yxdb.outBufferSize < longRecordBytesToRead {
+			longRecordBytesToRead = yxdb.outBufferSize
+		}
+
+		bytesCopied = uint32(copy(yxdb.longRecordBuffer[longRecordBufferPos:], yxdb.outBuffer[:longRecordBytesToRead]))
+		yxdb.currentPos = bytesCopied
+		longRecordBufferPos += bytesCopied
+	}
 	return true
 }
 
@@ -126,6 +160,9 @@ func (yxdb *yxdbReader) Error() error {
 }
 
 func (yxdb *yxdbReader) Record() RecordBlob {
+	if yxdb.isLongRecord {
+		return NewRecordBlob(unsafe.Pointer(&yxdb.longRecordBuffer[0]))
+	}
 	return NewRecordBlob(unsafe.Pointer(&yxdb.outBuffer[yxdb.currentPos]))
 }
 

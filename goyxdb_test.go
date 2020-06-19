@@ -40,6 +40,33 @@ func TestLoadYxdb(t *testing.T) {
 	}
 }
 
+func TestLoadYxdbWithLargeField(t *testing.T) {
+	yxdb, err := goyxdb.LoadYxdbReader(`VeryLongField.yxdb`)
+	if err != nil {
+		t.Fatalf(`expected no error but got: %v`, err.Error())
+	}
+
+	recordCount := 0
+	var expectedId byte = 1
+	for yxdb.Next() {
+		actualId := *((*byte)(yxdb.Record().Blob()))
+		if actualId != expectedId {
+			t.Fatalf(`expected id %v but got %v`, expectedId, actualId)
+		}
+		recordCount++
+		expectedId++
+	}
+
+	err = yxdb.Close()
+	if err != nil {
+		t.Fatalf(`expected no error but got: %v`, err.Error())
+	}
+
+	if recordCount != 3 {
+		t.Fatalf(`expected 3 records but got %v`, recordCount)
+	}
+}
+
 const expectedMetaInfo = `<RecordInfo>
 	<Field name="UserID" source="RecordID: Starting Value=100" type="Int32"/>
 	<Field name="First" size="12" source="Formula: titlecase([_CurrentField_])" type="V_WString"/>
