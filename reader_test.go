@@ -67,7 +67,7 @@ func TestLoadYxdbWithLargeField(t *testing.T) {
 	}
 }
 
-func TestLotsOfRecords(t *testing.T) {
+func TestReadLotsOfRecords(t *testing.T) {
 	yxdb, err := goyxdb.LoadYxdbReader(`LotsOfRecords.yxdb`)
 	if err != nil {
 		t.Fatalf(`expected no error but got: %v`, err.Error())
@@ -94,7 +94,7 @@ func TestLotsOfRecords(t *testing.T) {
 	}
 }
 
-const expectedMetaInfo = `<RecordInfo>
+const expectedMetaInfo = `<MetaInfo><RecordInfo>
 	<Field name="UserID" source="RecordID: Starting Value=100" type="Int32"/>
 	<Field name="First" size="12" source="Formula: titlecase([_CurrentField_])" type="V_WString"/>
 	<Field name="Last" size="19" source="Formula: titlecase([_CurrentField_])" type="V_WString"/>
@@ -105,7 +105,7 @@ const expectedMetaInfo = `<RecordInfo>
 	<Field name="Email" size="35" source="CrossTab:Header:JSON_Name:email:Concat:" type="V_WString"/>
 	<Field name="Country" size="2" source="CrossTab:Header:JSON_Name:nat:Concat:" type="String"/>
 </RecordInfo>
-`
+</MetaInfo>`
 
 func getUserIdFromRecordBlob(record goyxdb.RecordBlob) int {
 	return int(*((*uint32)(record.Blob())))

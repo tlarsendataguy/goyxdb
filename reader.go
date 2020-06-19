@@ -76,7 +76,7 @@ func (yxdb *yxdbReader) compressionVersion() uint32 {
 }
 
 func (yxdb *yxdbReader) RecordInfoXml() string {
-	return yxdb.recordInfoXml
+	return `<MetaInfo>` + yxdb.recordInfoXml + `</MetaInfo>`
 }
 
 func (yxdb *yxdbReader) Next() bool {
