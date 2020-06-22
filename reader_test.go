@@ -105,6 +105,22 @@ func TestNewYxdbMetaInfo(t *testing.T) {
 	}
 }
 
+func TestAllNormalFields(t *testing.T) {
+	yxdb, err := goyxdb.LoadYxdbReader(`AllNormalFields.yxdb`)
+	if err != nil {
+		t.Fatalf(`expected no error but got: %v`, err.Error())
+	}
+
+	recordCount := 0
+	for yxdb.Next() {
+		recordCount++
+	}
+	expectedCount := 1
+	if recordCount != expectedCount {
+		t.Fatalf(`expected %v but got %v`, expectedCount, recordCount)
+	}
+}
+
 const expectedMetaInfo = `<MetaInfo><RecordInfo>
 	<Field name="UserID" source="RecordID: Starting Value=100" type="Int32"/>
 	<Field name="First" size="12" source="Formula: titlecase([_CurrentField_])" type="V_WString"/>

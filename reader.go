@@ -235,11 +235,11 @@ func LoadYxdbReader(path string) (YxdbReader, error) {
 			yxdb.fixedSize += 2
 		case `Int16`:
 			yxdb.fixedSize += 3
-		case `Int32`:
+		case `Int32`, `Float`:
 			yxdb.fixedSize += 5
-		case `Int64`:
+		case `Int64`, `Double`:
 			yxdb.fixedSize += 9
-		case `String`:
+		case `String`, `FixedDecimal`:
 			yxdb.fixedSize += field.Size + 1
 		case `WString`:
 			yxdb.fixedSize += field.Size*2 + 1
