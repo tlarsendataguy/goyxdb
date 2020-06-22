@@ -37,14 +37,22 @@ type yxdbReader struct {
 
 const bufferSize uint32 = 0x40000
 
+type metaInfoXml struct {
+	XMLName    xml.Name `xml:"MetaInfo"`
+	RecordInfo *recordInfoXml
+}
+
 type recordInfoXml struct {
 	XMLName xml.Name `xml:"RecordInfo"`
 	Field   []fieldXml
 }
 
 type fieldXml struct {
-	Type string `xml:"type,attr"`
-	Size uint32 `xml:"size,attr"`
+	Name   string `xml:"name,attr"`
+	Source string `xml:"source,attr"`
+	Size   uint32 `xml:"size,attr"`
+	Scale  uint32 `xml:"scale,attr"`
+	Type   string `xml:"type,attr"`
 }
 
 func (yxdb *yxdbReader) fileDesc() string {
@@ -76,7 +84,7 @@ func (yxdb *yxdbReader) compressionVersion() uint32 {
 }
 
 func (yxdb *yxdbReader) RecordInfoXml() string {
-	return `<MetaInfo>` + yxdb.recordInfoXml + `</MetaInfo>`
+	return yxdb.recordInfoXml
 }
 
 func (yxdb *yxdbReader) Next() bool {
@@ -203,16 +211,23 @@ func LoadYxdbReader(path string) (YxdbReader, error) {
 	for i := uint32(0); i < metaInfoSize; i++ {
 		metaInfoUint16[i] = binary.LittleEndian.Uint16(metaInfoBytes[i*2 : i*2+2])
 	}
-	metaInfo := syscall.UTF16ToString(metaInfoUint16)
-	yxdb.recordInfoXml = metaInfo
+	metaInfoStr := syscall.UTF16ToString(metaInfoUint16)
 
-	var metaInfoXml recordInfoXml
-	err = xml.Unmarshal([]byte(metaInfo), &metaInfoXml)
+	var metaInfo metaInfoXml
+	err = xml.Unmarshal([]byte(metaInfoStr), &metaInfo)
 	if err != nil {
-		return nil, err
+		// Some (older?) YXDBs do not have the surrounding MetaInfo tags.  If unmarshal has an error, it is probably
+		// because MetaInfo is missing.  Add the tag manually and try again.
+		metaInfoStr = `<MetaInfo>` + metaInfoStr + `</MetaInfo>`
+		err = xml.Unmarshal([]byte(metaInfoStr), &metaInfo)
+		if err != nil {
+			return nil, err
+		}
 	}
+	yxdb.recordInfoXml = metaInfoStr
+
 	varFields := 0
-	for _, field := range metaInfoXml.Field {
+	for _, field := range metaInfo.RecordInfo.Field {
 		switch field.Type {
 		case `Bool`:
 			yxdb.fixedSize += 1
