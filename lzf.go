@@ -50,6 +50,15 @@ func decompress(inData []byte, inLen uint32, outData []byte, outLen uint32) (uin
 			return 0, fmt.Errorf(`EINVAL`)
 		}
 
+		// short-cut if reference will not collide with oidx
+		if fullLength := length + 2; reference+fullLength < oidx {
+			copy(outData[oidx:oidx+fullLength], outData[reference:reference+fullLength])
+			oidx += fullLength
+			reference += fullLength
+			doOuterLoop = iidx < inLen
+			continue
+		}
+
 		outData[oidx] = outData[reference]
 		oidx++
 		reference++
@@ -61,11 +70,11 @@ func decompress(inData []byte, inLen uint32, outData []byte, outLen uint32) (uin
 		doInnerLoop := true
 		for doInnerLoop {
 			outData[oidx] = outData[reference]
-			oidx++
-			reference++
+			oidx += 1
+			reference += 1
 
-			length--
-			doInnerLoop = length != 0
+			length -= 1
+			doInnerLoop = length > 0
 		}
 
 		doOuterLoop = iidx < inLen
