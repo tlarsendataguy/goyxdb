@@ -24,7 +24,9 @@ type yxdbReader struct {
 	file             *os.File
 	err              error
 	fixedSize        uint32
-	inBuffer         []byte
+	inBuffer1        []byte
+	inBuffer2        []byte
+	currentInBuffer  int
 	outBuffer        []byte
 	outBufferSize    uint32
 	currentPos       uint32
@@ -33,6 +35,9 @@ type yxdbReader struct {
 	currentRecord    int
 	longRecordBuffer []byte
 	isLongRecord     bool
+	bufferChan       chan []byte
+	lengthChan       chan uint32
+	isCompressedChan chan bool
 }
 
 const bufferSize uint32 = 0x40000
@@ -106,9 +111,9 @@ func (yxdb *yxdbReader) Next() bool {
 	// load the next round of bytes from the file if we don't have enough bytes to grab the variable width len of
 	// the current record
 	if yxdb.currentPos+yxdb.fixedSize+yxdb.varLenSize > yxdb.outBufferSize {
-		ok, err := yxdb.loadNextBuffer()
-		yxdb.err = err
+		ok, err := yxdb.nextBuffer()
 		if err != nil || !ok {
+			yxdb.err = err
 			return false
 		}
 	}
@@ -121,9 +126,9 @@ func (yxdb *yxdbReader) Next() bool {
 	}
 
 	if yxdb.currentPos+recordSize > yxdb.outBufferSize {
-		ok, err := yxdb.loadNextBuffer()
-		yxdb.err = err
+		ok, err := yxdb.nextBuffer()
 		if err != nil || !ok {
+			yxdb.err = err
 			return false
 		}
 	}
@@ -141,7 +146,7 @@ func (yxdb *yxdbReader) processLongRecord(recordSize uint32) bool {
 	longRecordBufferPos := bytesCopied
 	yxdb.currentPos += bytesCopied
 	for longRecordBufferPos < recordSize {
-		ok, err := yxdb.loadNextBuffer()
+		ok, err := yxdb.nextBuffer()
 		if err != nil || !ok {
 			return false
 		}
@@ -253,57 +258,101 @@ func LoadYxdbReader(path string) (YxdbReader, error) {
 		}
 	}
 
-	yxdb.inBuffer = make([]byte, bufferSize)
+	yxdb.inBuffer1 = make([]byte, bufferSize)
+	yxdb.inBuffer2 = make([]byte, bufferSize)
+	yxdb.currentInBuffer = 1
+	yxdb.bufferChan = make(chan []byte)
+	yxdb.lengthChan = make(chan uint32)
+	yxdb.isCompressedChan = make(chan bool)
 	yxdb.outBuffer = make([]byte, bufferSize*2)
 	if varFields == 0 {
 		yxdb.varLenSize = 0
 	} else {
 		yxdb.varLenSize = 4
 	}
+	go yxdb.readBufferLoop()
 	return yxdb, nil
 }
 
-func (yxdb *yxdbReader) loadNextBuffer() (bool, error) {
+func (yxdb *yxdbReader) nextBuffer() (bool, error) {
+	inBuffer, more := <-yxdb.bufferChan
+	if !more {
+		return false, nil
+	}
+	length := <-yxdb.lengthChan
+	isCompressed := <-yxdb.isCompressedChan
+
 	var delta uint32 = 0
 	if yxdb.currentPos < yxdb.outBufferSize {
 		delta = yxdb.outBufferSize - yxdb.currentPos
 		copy(yxdb.outBuffer[0:delta], yxdb.outBuffer[yxdb.currentPos:yxdb.outBufferSize])
 	}
 
-	buffer := make([]byte, 4)
-	read, err := yxdb.file.Read(buffer)
-	if err != nil || read != 4 {
-		return false, err
-	}
-
-	length := binary.LittleEndian.Uint32(buffer)
-
-	if length&0x80000000 > 0 { // data in block is not compressed and can be copied directly to the out buffer
-		length &= 0x7fffffff
-
-		read, err = yxdb.file.Read(yxdb.outBuffer[delta : delta+length])
+	if isCompressed {
+		outBufferSize, err := decompress(inBuffer, length, yxdb.outBuffer[delta:], bufferSize*2-delta)
 		if err != nil {
-			return false, err
-		}
-		yxdb.outBufferSize = length
-
-	} else { // data in block is compressed and needs to be decompressed
-		read, err = yxdb.file.Read(yxdb.inBuffer[0:length])
-		if err != nil {
-			return false, err
-		}
-
-		outBufferSize, err := decompress(yxdb.inBuffer, length, yxdb.outBuffer[delta:], bufferSize*2-delta)
-		if err != nil {
-			return false, err
+			return false, nil
 		}
 		yxdb.outBufferSize = outBufferSize + delta
-	}
-
-	if yxdb.outBufferSize == 0 {
-		return false, nil
+	} else {
+		copy(yxdb.outBuffer[delta:], inBuffer[:length])
+		yxdb.outBufferSize = length + delta
 	}
 
 	yxdb.currentPos = 0
 	return true, nil
+}
+
+func (yxdb *yxdbReader) readBufferLoop() {
+	for {
+		var inBuffer []byte
+		if yxdb.currentInBuffer == 1 {
+			inBuffer = yxdb.inBuffer1
+			yxdb.currentInBuffer = 2
+		} else {
+			inBuffer = yxdb.inBuffer2
+			yxdb.currentInBuffer = 1
+		}
+
+		buffer := make([]byte, 4)
+		read, err := yxdb.file.Read(buffer)
+		if err != nil || read != 4 {
+			yxdb.err = err
+			yxdb.closeChannels()
+			return
+		}
+
+		length := binary.LittleEndian.Uint32(buffer)
+
+		var isCompressed bool
+		if length&0x80000000 > 0 { // data in block is not compressed
+			isCompressed = false
+			length &= 0x7fffffff
+
+		} else { // data in block is compressed and needs to be decompressed
+			isCompressed = true
+		}
+
+		read, err = yxdb.file.Read(inBuffer[:length])
+		if err != nil {
+			yxdb.err = err
+			yxdb.closeChannels()
+			return
+		}
+
+		if read == 0 {
+			yxdb.closeChannels()
+			return
+		}
+
+		yxdb.bufferChan <- inBuffer
+		yxdb.lengthChan <- length
+		yxdb.isCompressedChan <- isCompressed
+	}
+}
+
+func (yxdb *yxdbReader) closeChannels() {
+	close(yxdb.bufferChan)
+	close(yxdb.lengthChan)
+	close(yxdb.isCompressedChan)
 }
