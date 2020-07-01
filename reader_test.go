@@ -6,7 +6,7 @@ import (
 )
 
 func TestLoadYxdb(t *testing.T) {
-	yxdb, err := goyxdb.LoadYxdbReader(`TutorialData.yxdb`)
+	yxdb, err := goyxdb.LoadYxdbReader(`test_files\TutorialData.yxdb`)
 	if err != nil {
 		t.Fatalf(`expected no error but got: %v`, err.Error())
 	}
@@ -41,7 +41,7 @@ func TestLoadYxdb(t *testing.T) {
 }
 
 func TestLoadYxdbWithLargeField(t *testing.T) {
-	yxdb, err := goyxdb.LoadYxdbReader(`VeryLongField.yxdb`)
+	yxdb, err := goyxdb.LoadYxdbReader(`test_files\VeryLongField.yxdb`)
 	if err != nil {
 		t.Fatalf(`expected no error but got: %v`, err.Error())
 	}
@@ -68,7 +68,7 @@ func TestLoadYxdbWithLargeField(t *testing.T) {
 }
 
 func TestReadLotsOfRecords(t *testing.T) {
-	yxdb, err := goyxdb.LoadYxdbReader(`LotsOfRecords.yxdb`)
+	yxdb, err := goyxdb.LoadYxdbReader(`test_files\LotsOfRecords.yxdb`)
 	if err != nil {
 		t.Fatalf(`expected no error but got: %v`, err.Error())
 	}
@@ -95,7 +95,7 @@ func TestReadLotsOfRecords(t *testing.T) {
 }
 
 func TestNewYxdbMetaInfo(t *testing.T) {
-	yxdb, err := goyxdb.LoadYxdbReader(`TestNewYxdb.yxdb`)
+	yxdb, err := goyxdb.LoadYxdbReader(`test_files\TestNewYxdb.yxdb`)
 	if err != nil {
 		t.Fatalf(`expected no error but got: %v`, err.Error())
 	}
@@ -106,7 +106,7 @@ func TestNewYxdbMetaInfo(t *testing.T) {
 }
 
 func TestAllNormalFields(t *testing.T) {
-	yxdb, err := goyxdb.LoadYxdbReader(`AllNormalFields.yxdb`)
+	yxdb, err := goyxdb.LoadYxdbReader(`test_files\AllNormalFields.yxdb`)
 	if err != nil {
 		t.Fatalf(`expected no error but got: %v`, err.Error())
 	}
